@@ -1,368 +1,205 @@
-"""
-MCTiers Data Science App
-View Minecraft player rankings from MCTiers API
-Made for Preliminary Software Engineering assignment
-"""
 
 import requests
-import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-# API endpoint - v2 because v1 gets removed June 2026
 baseUrl = "https://mctiers.com/api/v2"
-
-# Store user actions for the history feature (assignment requirement)
 myHistory = []
 
-def printMenu():
-    """Display the main menu options"""
+def getData(url, extra=None):
+    """Get data from API with error handling"""
+    try:
+        r = requests.get(url, params=extra, timeout=10)
+        if r.status_code == 200:
+            return r.json()
+        elif r.status_code == 404:
+            print("Not found. Check what you typed.")
+        else:
+            print(f"API error: {r.status_code}")
+    except:
+        print("Connection error. Check internet.")
+    return None
+
+def menu():
     print("\n" + "=" * 50)
     print("     MCTiers Rankings Explorer")
     print("=" * 50)
-    print("1. See all gamemodes")
-    print("2. See top players")
-    print("3. See rankings for a gamemode")
-    print("4. Find a player")
-    print("5. See recent tests")
-    print("6. What did I do?")
-    print("7. Make a graph")
-    print("8. Help me")
-    print("0. Quit")
+    print("1. Gamemodes     5. Recent tests")
+    print("2. Top players   6. My history")
+    print("3. Mode rankings 7. Make graph")
+    print("4. Find player   8. Help")
+    print("0. Exit")
     print("-" * 50)
 
-def fetchFromApi(url, extra=None):
-    """
-    Gets data from the API with error handling
-    Without this, network errors would crash the program
-    """
-    try:
-        response = requests.get(url, params=extra, timeout=10)
-        
-        if response.status_code == 200:
-            return response.json()
-        elif response.status_code == 404:
-            print("Couldn't find it. Check what you typed.")
-            return None
-        else:
-            print(f"API error: {response.status_code}")
-            return None
-            
-    except requests.exceptions.ConnectionError:
-        print("No internet connection. Check your wifi.")
-        return None
-    except requests.exceptions.Timeout:
-        print("Took too long. Try again.")
-        return None
-    except Exception as e:
-        print(f"Something went wrong: {e}")
-        return None
-
 def showGamemodes():
-    """
-    Shows available gamemodes - user needs this before using option 3
-    Otherwise they wouldn't know what slugs to type
-    """
-    print("\nGetting gamemodes...")
-    data = fetchFromApi(f"{baseUrl}/mode/list")
-    
+    data = getData(f"{baseUrl}/mode/list")
     if data:
-        print("\n" + "=" * 50)
-        print("Gamemodes You Can Check Out")
-        print("=" * 50)
+        print("\n=== Gamemodes ===")
         for slug, info in data.items():
-            # Only show title, descriptions were too long
-            print(f"\n{slug}: {info.get('title', 'No title')}")
-        myHistory.append("Looked at gamemodes")
-    input("\nPress Enter to continue...")
+            print(f"{slug}: {info.get('title', 'No title')}")
+        myHistory.append("Viewed gamemodes")
+    input("\nPress Enter...")
 
 def showTopPlayers():
-    """
-    Shows global rankings - most points first
-    User picks count because API supports pagination up to 50
-    """
-    howMany = askHowMany()
-    if not howMany:
-        return
-    
-    print(f"\nGetting top {howMany} players...")
-    data = fetchFromApi(f"{baseUrl}/mode/overall", {"count": howMany})
-    
+    count = getCount()
+    if not count: return
+    data = getData(f"{baseUrl}/mode/overall", {"count": count})
     if data:
-        print("\n" + "=" * 50)
-        print(f"Top {len(data)} Players")
-        print("=" * 50)
-        for i, player in enumerate(data, 1):
-            print(f"{i:2}. {player['name']:<20} | Points: {player.get('points', 0):>6} | Region: {player.get('region', '??')}")
-        myHistory.append(f"Looked at top {howMany} players")
-    input("\nPress Enter to continue...")
+        print(f"\n=== Top {len(data)} Players ===")
+        for i, p in enumerate(data, 1):
+            print(f"{i:2}. {p['name']:<20} | Points: {p.get('points', 0):>6} | Region: {p.get('region', '??')}")
+        myHistory.append(f"Viewed top {count} players")
+    input("\nPress Enter...")
 
 def showModeRankings():
-    """
-    Shows tiered rankings for a specific gamemode
-    API returns players grouped by tier 1-5 (1 is highest)
-    Tiers 1-2 are labelled HIGH, 3-5 are LOW per MCTiers system
-    """
-    print("\nGetting gamemodes...")
-    allModes = fetchFromApi(f"{baseUrl}/mode/list")
-    
-    if not allModes:
+    modes = getData(f"{baseUrl}/mode/list")
+    if not modes: return
+    print("\nGamemodes:", ", ".join(modes.keys()))
+    mode = input("Enter gamemode: ").lower().strip()
+    if mode not in modes:
+        print("Not found")
         return
-    
-    # Show available gamemodes so user doesn't have to guess
-    print("\nGamemodes you can pick from:")
-    for slug in allModes.keys():
-        print(f"  • {slug}")
-    
-    modeChoice = input("\nType the gamemode name (like vanilla): ").lower().strip()
-    if modeChoice not in allModes:
-        print(f"'{modeChoice}' not found. Use option 1 to see all gamemodes.")
-        return
-    
-    howMany = askHowMany()
-    if not howMany:
-        return
-    
-    print(f"\nGetting {modeChoice} rankings...")
-    data = fetchFromApi(f"{baseUrl}/mode/{modeChoice}", {"count": howMany})
-    
+    count = getCount()
+    if not count: return
+    data = getData(f"{baseUrl}/mode/{mode}", {"count": count})
     if data:
-        print("\n" + "=" * 50)
-        print(f"{modeChoice.upper()} Rankings")
-        print("=" * 50)
-        
-        for tier in ['1', '2', '3', '4', '5']:
-            playersHere = data.get(tier, [])
-            if playersHere:
-                tierType = "HIGH" if tier in ['1', '2'] else "LOW"
+        print(f"\n=== {mode.upper()} Rankings ===")
+        for tier in ['1','2','3','4','5']:
+            players = data.get(tier, [])
+            if players:
+                tierType = "HIGH" if tier in ['1','2'] else "LOW"
                 print(f"\nTier {tier} ({tierType}):")
-                for player in playersHere:
-                    # pos 0 = High position, 1 = Low position within tier
-                    highLow = "High" if player.get('pos') == 0 else "Low"
-                    print(f"  • {player['name']:<20} | {highLow} | Region: {player.get('region', '??')}")
+                for p in players:
+                    pos = "High" if p.get('pos') == 0 else "Low"
+                    print(f"  • {p['name']:<20} | {pos} | {p.get('region', '??')}")
             else:
-                print(f"\nTier {tier}: No players here")
-        
-        myHistory.append(f"Looked at {modeChoice} rankings")
-    input("\nPress Enter to continue...")
+                print(f"\nTier {tier}: No players")
+        myHistory.append(f"Viewed {mode} rankings")
+    input("\nPress Enter...")
 
 def findPlayer():
-    """
-    Search by UUID or username - both are common ways people identify players
-    Shows all rankings across gamemodes for that player
-    """
-    print("\nHow do you want to search?")
-    print("1. By UUID (looks like: 6553509f-66d3-4041-875f-164236e42e84)")
-    print("2. By username")
-    choice = input("Pick 1 or 2: ").strip()
-    
+    print("\n1. UUID  2. Username")
+    choice = input("Choose: ").strip()
     if choice == '1':
-        playerId = input("Enter UUID: ").strip()
-        if not playerId:
-            return
-        urlToUse = f"{baseUrl}/profile/{playerId}"
+        uid = input("UUID: ").strip()
+        if not uid: return
+        url = f"{baseUrl}/profile/{uid}"
     elif choice == '2':
-        playerName = input("Enter username: ").strip()
-        if not playerName:
-            return
-        urlToUse = f"{baseUrl}/profile/by-name/{playerName}"
+        name = input("Username(Try Flowtives, Ferremc, K1rbe): ").strip()
+        if not name: return
+        url = f"{baseUrl}/profile/by-name/{name}"
     else:
-        print("Not a valid choice")
         return
-    
-    print("\nSearching...")
-    playerData = fetchFromApi(urlToUse)
-    
-    if playerData and 'error' not in playerData:
-        print("\n" + "=" * 50)
-        print(f"Player: {playerData.get('name', 'Unknown')}")
-        print("=" * 50)
-        print(f"UUID: {playerData.get('uuid', 'N/A')}")
-        print(f"Region: {playerData.get('region', 'N/A')}")
-        print(f"Points: {playerData.get('points', 0)}")
-        print(f"Overall Rank: #{playerData.get('overall', 'N/A')}")
-        
-        theirRankings = playerData.get('rankings', {})
-        if theirRankings:
-            print("\nTheir Rankings:")
-            for modeName, rankInfo in theirRankings.items():
-                tierNum = rankInfo.get('tier')
-                highLowPos = "High" if rankInfo.get('pos') == 0 else "Low"
-                retiredText = " (Retired)" if rankInfo.get('retired') else ""
-                print(f"  • {modeName}: Tier {tierNum} {highLowPos}{retiredText}")
-        
-        myHistory.append(f"Searched for player: {playerData.get('name', 'Unknown')}")
-    elif playerData and playerData.get('error') == "Resource not found":
-        print("Couldn't find that player. Check the UUID or username.")
+    data = getData(url)
+    if data and 'error' not in data:
+        print(f"\n=== {data.get('name', 'Unknown')} ===")
+        print(f"UUID: {data.get('uuid', 'N/A')}")
+        print(f"Region: {data.get('region', 'N/A')}")
+        print(f"Points: {data.get('points', 0)}")
+        print(f"Overall Rank: #{data.get('overall', 'N/A')}")
+        if data.get('rankings'):
+            print("\nRankings:")
+            for mode, r in data['rankings'].items():
+                tier = r.get('tier')
+                pos = "High" if r.get('pos') == 0 else "Low"
+                retired = " (Retired)" if r.get('retired') else ""
+                print(f"  • {mode}: Tier {tier} {pos}{retired}")
+        myHistory.append(f"Searched: {data.get('name')}")
     else:
-        print("Something went wrong finding the player")
-    
-    input("\nPress Enter to continue...")
+        print("Player not found")
+    input("\nPress Enter...")
 
 def seeRecentTests():
-    """
-    Shows recent ranking changes (tests)
-    API returns Unix timestamps, need to convert to readable dates
-    """
-    howManyTests = input("\nHow many tests to show? (1-20, default 10): ").strip()
+    count = input("How many tests? (1-20, default 10): ").strip()
     try:
-        howManyTests = min(int(howManyTests) if howManyTests else 10, 20)
-    except ValueError:
-        howManyTests = 10
-    
-    print(f"\nGetting {howManyTests} recent tests...")
-    testData = fetchFromApi(f"{baseUrl}/tests/recent", {"count": howManyTests})
-    
-    if testData:
-        print("\n" + "=" * 50)
-        print("Recent Tests")
-        print("=" * 50)
-        
-        for oneTest in testData[:howManyTests]:
-            # Convert Unix timestamp to human-readable date
-            timeStamp = oneTest.get('at', 0)
-            if timeStamp:
-                theDate = datetime.fromtimestamp(timeStamp).strftime('%Y-%m-%d %H:%M')
-            else:
-                theDate = "Unknown"
-            
-            thePlayer = oneTest.get('player', {})
-            playerNameHere = thePlayer.get('name', 'Unknown')
-            gameModeHere = oneTest.get('gamemode', 'Unknown')
-            newTier = oneTest.get('result_tier', '?')
-            newPos = "High" if oneTest.get('result_pos') == 0 else "Low"
-            
-            print(f"\n{theDate} - {playerNameHere}")
-            print(f"  {gameModeHere}: Now Tier {newTier} {newPos}")
-        
-        myHistory.append(f"Looked at recent tests")
-    input("\nPress Enter to continue...")
+        count = min(int(count) if count else 10, 20)
+    except:
+        count = 10
+    data = getData(f"{baseUrl}/tests/recent", {"count": count})
+    if data:
+        print("\n=== Recent Tests ===")
+        for t in data[:count]:
+            date = datetime.fromtimestamp(t.get('at', 0)).strftime('%Y-%m-%d %H:%M') if t.get('at') else "Unknown"
+            p = t.get('player', {})
+            name = p.get('name', 'Unknown')
+            mode = t.get('gamemode', 'Unknown')
+            tier = t.get('result_tier', '?')
+            pos = "High" if t.get('result_pos') == 0 else "Low"
+            print(f"\n{date} - {name}")
+            print(f"  {mode}: Now Tier {tier} {pos}")
+        myHistory.append("Viewed recent tests")
+    input("\nPress Enter...")
 
-def seeWhatIDid():
-    """
-    Display user's session history
-    Required by assignment spec - need to record interactions
-    """
+def seeHistory():
     if not myHistory:
-        print("\nYou haven't done anything yet! Try some options first.")
+        print("\nNo history yet.")
     else:
-        print("\n" + "=" * 50)
-        print("What You've Done So Far")
-        print("=" * 50)
-        for num, thing in enumerate(myHistory[-20:], 1):
-            print(f"{num}. {thing}")
-    input("\nPress Enter to continue...")
+        print("\n=== Your History ===")
+        for i, h in enumerate(myHistory[-20:], 1):
+            print(f"{i}. {h}")
+    input("\nPress Enter...")
 
 def drawGraph():
-    """
-    Create bar chart of top players
-    Required by marking criteria - need data visualisation
-    """
-    howManyGraph = input("\nHow many players to put in the graph? (5-20, default 10): ").strip()
+    count = input("How many players? (5-20, default 10): ").strip()
     try:
-        howManyGraph = min(max(int(howManyGraph) if howManyGraph else 10, 5), 20)
-    except ValueError:
-        howManyGraph = 10
-    
-    print(f"\nGetting top {howManyGraph} players...")
-    graphData = fetchFromApi(f"{baseUrl}/mode/overall", {"count": howManyGraph})
-    
-    if graphData:
-        playerNames = []
-        playerPoints = []
-        
-        for onePlayer in graphData[:howManyGraph]:
-            playerNames.append(onePlayer['name'])
-            playerPoints.append(onePlayer.get('points', 0))
-        
-        # Create bar chart
+        count = min(max(int(count) if count else 10, 5), 20)
+    except:
+        count = 10
+    data = getData(f"{baseUrl}/mode/overall", {"count": count})
+    if data:
+        names = [p['name'] for p in data[:count]]
+        points = [p.get('points', 0) for p in data[:count]]
         plt.figure(figsize=(10, 6))
-        plt.bar(range(len(playerNames)), playerPoints)
+        plt.bar(range(len(names)), points)
         plt.xlabel('Player')
         plt.ylabel('Points')
-        plt.title(f'Top {len(playerNames)} Players by Points')
-        plt.xticks(range(len(playerNames)), playerNames, rotation=45, ha='right')
+        plt.title(f'Top {len(names)} Players')
+        plt.xticks(range(len(names)), names, rotation=45, ha='right')
         plt.tight_layout()
         plt.show()
-        
-        myHistory.append(f"Made a graph of top {howManyGraph} players")
-    input("\nPress Enter to continue...")
+        myHistory.append(f"Made graph of top {count} players")
+    input("\nPress Enter...")
 
 def helpMe():
-    """
-    Explain what tiers, tests, etc mean
-    New users won't understand MCTiers terminology
-    """
     print("\n" + "=" * 50)
-    print("Help Guide - What Everything Means")
+    print("Help Guide")
     print("=" * 50)
-    print("\nGamemodes:")
-    print("  Different game types like Vanilla, Sword, etc.")
-    print("\nTiers:")
-    print("  Tier 1 = Best players")
-    print("  Tier 5 = Lower ranked players")
-    print("  High/Low = Position within each tier")
-    print("\nSearching:")
-    print("  UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
-    print("  Username: Current Minecraft Java name")
-    print("\nTests:")
-    print("  Tests show when a player's rank changes")
-    print("  They show the old rank and new rank")
+    print("\nTiers: 1=Best, 5=Lowest")
+    print("High/Low = Position within tier")
+    print("UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+    print("Tests show when a player's rank changed")
     print("=" * 50)
-    input("\nPress Enter to continue...")
+    input("\nPress Enter...")
 
-def askHowMany():
-    """
-    Get count from user, enforce API limit of 50
-    Default 10 is reasonable for display
-    """
-    howMany = input("\nHow many results? (1-50, default 10): ").strip()
+def getCount():
     try:
-        howMany = int(howMany) if howMany else 10
-        if howMany < 1:
-            howMany = 10
-        elif howMany > 50:
-            print("Max is 50, using 50")
-            howMany = 50
-        return howMany
-    except ValueError:
-        print("That's not a number, using 10")
+        c = input("\nHow many? (1-50, default 10): ").strip()
+        c = int(c) if c else 10
+        if c < 1: c = 10
+        if c > 50: 
+            print("Max 50")
+            c = 50
+        return c
+    except:
         return 10
 
 def start():
-    """
-    Main program loop
-    Menu-driven interface as per assignment requirements
-    """
-    print("\nWelcome to my MCTiers Rankings Explorer!")
-    print("Type a number to pick something.")
-    
+    print("\nWelcome to MCTiers Rankings Explorer!")
     while True:
-        printMenu()
-        usersPick = input("What do you want to do? (0-8): ").strip()
-        
-        if usersPick == '0':
-            print("\nThanks for using my program!")
-            print(f"You did {len(myHistory)} things this session.")
+        menu()
+        choice = input("Choice (0-8): ").strip()
+        if choice == '0':
+            print(f"\nThanks! You did {len(myHistory)} things.")
             break
-        elif usersPick == '1':
-            showGamemodes()
-        elif usersPick == '2':
-            showTopPlayers()
-        elif usersPick == '3':
-            showModeRankings()
-        elif usersPick == '4':
-            findPlayer()
-        elif usersPick == '5':
-            seeRecentTests()
-        elif usersPick == '6':
-            seeWhatIDid()
-        elif usersPick == '7':
-            drawGraph()
-        elif usersPick == '8':
-            helpMe()
-        else:
-            print("That's not an option. Pick a number between 0 and 8.")
+        elif choice == '1': showGamemodes()
+        elif choice == '2': showTopPlayers()
+        elif choice == '3': showModeRankings()
+        elif choice == '4': findPlayer()
+        elif choice == '5': seeRecentTests()
+        elif choice == '6': seeHistory()
+        elif choice == '7': drawGraph()
+        elif choice == '8': helpMe()
+        else: print("Invalid choice")
 
 if __name__ == "__main__":
     start()
